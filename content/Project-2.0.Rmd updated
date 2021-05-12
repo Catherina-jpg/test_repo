@@ -1,0 +1,439 @@
+---
+title: 'Project 2: Modeling, Testing, and Predicting'
+author: 'Catherina Okoro'
+date: '5/6/2021'
+
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+```
+
+
+## INTRODUCTION
+
+The data set I chose is the Iris Species classification data set from the UCI machine learning repository. The link to the data set is given below <br>
+ https://archive.ics.uci.edu/ml/datasets/iris <br><br>
+ The dataset has a total of 5 variables. <br><br>
+ i)Id. Unique ID for each representation <br><br> 
+ ii)SepalLengthCm. Sepal Length in Cm <br><br>
+ iii)SepalWidthCm. Sepal Width in Cm <br><br>
+ iv)PetalLengthCm. Petal Length in Cm <br><br>
+ v)PetalWidthCm. Petal Width in Cm  <br><br>
+ vi)Species. Different Iris Species <br>
+
+```{r}
+#reading data from csv file
+df <- read.csv("Iris.csv")
+head(df)
+```
+
+## MANOVA ANALYSIS
+
+```{r}
+# MANOVA test on SepalWidthCm and PeralWidthCm w.r.t Species
+mtest <- manova(cbind(SepalWidthCm, PetalWidthCm) ~ Species, data = df)
+summary(mtest)
+
+```
+
+
+Since the p value is less than 0.05, we can conclude that there is a significant difference between the two variables among species.
+
+```{r}
+#Univariate Anova to perform T tests
+summary.aov(mtest)
+```
+
+Since the p values for both SepalWidthCm and PetalWidthCm are less than 0.05 we can conclude that both variables differ.
+
+Normally we use the MANOVA analysis to check whether the mean value of numerical variables differs with respect to different values of the categorical variable or not. As seen in the above MANOVA analysis, I have observed that the values differ for different values of the categorical variable, therefor the assumptions of the MANOVA analysis are met.
+
+## T-test 
+
+I will compare the mean difference in Sepal Length for Setosa and Versicolor Species. The null hypothesis for this test is H0:There is no significant difference in the mean of Sepal Length for Setosa and Versicolor Species.
+
+
+```{r}
+#Filtering data to perform T.Test on SepalLengthCm and Species
+library(dplyr)
+filtered <- df %>% 
+  filter(Species == "Iris-setosa" | Species == "Iris-versicolor")%>%
+  select(SepalLengthCm, Species)
+```
+
+```{r}
+#Performing T.Test on SepalLengthCM and Species
+t.test(SepalLengthCm ~ Species, data = filtered)
+```
+
+Since the p-value is less than 0.05 we can reject the null hypothesis that there is no statistically significant difference in means of SepalLengthCm for Setosa and Versicolor Species.
+
+```{r}
+#Plotting the SepalLengthCm against Species
+library(ggplot2)
+ggplot(filtered, aes(Species, SepalLengthCm)) +
+        geom_boxplot() +
+  labs(title = "Sepal Length Distribution by Species")
+```
+From the above plot, it is pretty evident that there is a statistically significant difference in the mean of SepalLengthCm for Setosa and Versicolor Species.
+
+## Linear Regression Model
+    
+```{r}
+#Linear Regression model to predict SepalLengthCM from PetalLengthCm, SepalWidthCm and their interactions
+lm <- lm(SepalLengthCm ~ PetalLengthCm + SepalWidthCm + PetalLengthCm * SepalWidthCm, data = df)
+summary(lm)
+```
+
+From the result of the regression model it is pretty evident that the Petal Length has negative relation with interaction of Sepal Width and Petal Length and positive relation with Sepal Width and petal Length. The formula for this regression model would be
+
+SepalLengthCm = 1.41 + 0.71648 * PetalLengthCm + 0.85069 * SepalWidthCm - 0.07686 * (SepalWidthCm*PetalLengthCm)
+
+
+```{r}
+#Plotting the model
+ggplot(df, aes(x = PetalLengthCm, y = SepalLengthCm)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Regression Model")
+```
+
+The proportion of variance in the regression model is 0.84. This means an 84% variance of the dependent variables, explained by the variance of our independent variable.
+
+```{r}
+#Check assumptions of linearity, normality, and homeskedasticity
+par(mfrow = c(2, 2))
+plot(lm)
+```
+In the first plot (Residuals vs Fitted) the horizontal line doesn't distinct any pattern, this is an indication of the linear relationship. In the second plot (Normal Q-Q) the points follow the straight dashed line, in this case I can say that points are normally distributed. In the third plot Scale-Location the points are equally spread against the horizontal line, showing an indication of hetroskedasticity.
+
+## Regression Model with Roubust Standard Errors
+
+```{r}
+#Recompute regression results with robust standard errors
+library(lmtest)
+library(sandwich)
+coeftest(lm, vcov = vcovHC(lm, type="HC1"))
+```
+There are no changes in the regression resulst with the robust standard errors via coeftest, compared to the simple regression model, the coefficient has the same values in both models. 
+
+## Regression Model with Bootstrap Standard Errors
+
+```{r}
+library(caret)
+#Define train Control
+tc <- trainControl(method = "boot", number = 60)
+#Training the model
+model <- train(SepalLengthCm ~ PetalLengthCm + SepalWidthCm + PetalLengthCm * SepalWidthCm, data = df, method = "lm",trControl = tc)
+#Summarize the results
+print(model)
+```
+```{r}
+#Computing bootstrapped standard errors
+library(boot)
+model_coef <- function(data, index){
+  coef(lm(SepalLengthCm ~ PetalLengthCm + SepalWidthCm + PetalLengthCm * SepalWidthCm, data = df, subset = index))
+}
+boot(df, model_coef, 500)
+```
+The SE's calculated using the bootstrap standard error have very small difference when conpared to the Se's calculated with robust errors, but we can see that there is a significant difference in the SE's calculated using the original model, as compared to these two.
+
+## Logistic Regression Model
+
+
+```{r}
+#Creating a new binary variable regulation
+df$Regulation <- ifelse(df$PetalWidthCm >= 0.3, 1, 0)
+df3 <- df %>%
+  select(SepalLengthCm,PetalLengthCm,Regulation)
+```
+
+
+
+
+```{r}
+#Splitting the data into a training and testing dataset
+set.seed(42)
+n <- dim(df3)[1]
+inds.train <- sample(1:n, 3 * n/4)
+inds.test <- (1:n)[-inds.train]
+train.data <- df3[inds.train,]
+test.data <- df3[inds.test,]
+```
+
+
+```{r}
+#Fitting model on training data and the printout summary of model
+set.seed(42)
+logregm <- glm(Regulation ~ ., data = train.data, family = "binomial")
+summary(logregm)
+```
+
+For every one cm change in Sepal Length, the log odds of Setosa Species (versus versicolor Species) increases by 1.995. <br>
+For every one cm change in Petal Length, the log odds of Setosa Species (versus versicolor Species) increases by 2.712.
+
+
+```{r}
+#Making predictions on test data and computing confusion matrix
+probs <- predict(logregm, newdata = test.data, type = "response")
+preds <- rep(0, dim(test.data)[1])
+preds[probs > 0.5] <- 1
+cm <- table(preds, test.data$Regulation)
+cm
+```
+
+```{r}
+#Computing sensitivity
+library(caret)
+sensitivity(cm)
+```
+```{r}
+#Computing specificity
+specificity(cm)
+```
+```{r}
+#Computing accuracy
+accuracy <- mean(test.data$Regulation == preds)
+accuracy
+```
+```{r}
+#Computing precision
+tp <- cm[2,2]
+tn <- cm[1,1]
+fp <- cm[1,2]
+fn <- cm[2,1]
+precision <- (tp) / (tp + fp)
+precision
+```
+```{r}
+#Computing an AUC
+library(pROC)
+AUC <- auc(test.data$Regulation, preds, levels = c(0, 1), direction = "<")
+AUC
+```
+
+
+```{r}
+b0 <- logregm$coef[1] # Intercept
+X1 <- logregm$coef[2]
+X2 <- -logregm$coef[3]
+```
+
+
+
+```{r}
+X1_range <- seq(from=min(df$SepalLengthCm), to=max(df$SepalLengthCm), by=.1)
+X2_val <- mean(df$SepalWidthCm)
+
+```
+
+```{r}
+a_logits <- b0 + 
+  X1*X1_range + 
+  X2*X2_val 
+```
+
+```{r}
+b_logits <- b0 
+  X1*X1_range + 
+  X2*X2_val
+```
+
+```{r}
+#Computing logits
+a_probs <- exp(a_logits)/(2 + exp(a_logits))
+b_probs <- exp(b_logits)/(1 + exp(b_logits))
+```
+
+
+```{r}
+#Plotting logits
+library(tidyr)
+plot.data <- data.frame(a=a_logits/1000, b=b_logits/1000, X1=X1_range)
+
+plot.data <- gather(plot.data, key=group, value=prob, a:b)
+
+ggplot(plot.data, aes(x=X1, y=prob, color=group)) +
+  geom_line(lwd=2) +
+  labs(title = "Probability Distribution for different Groups")
+```
+
+```{r}
+#Plotting the AUC
+library(PRROC)
+
+PRROC_obj <- roc.curve(scores.class0 = preds, weights.class0=test.data$Regulation,
+                       curve=TRUE)
+plot(PRROC_obj)
+```
+
+```{r}
+#Selecting all the variables
+data <- df%>%select(SepalLengthCm, SepalWidthCm, PetalLengthCm,PetalWidthCm, Regulation)
+data$Regulation <- as.factor(data$Regulation)
+```
+
+```{r}
+#Splitting the data into training and testing data
+set.seed(42)
+n <- dim(data)[1]
+inds.train <- sample(1:n, 3 * n/4)
+inds.test <- (1:n)[-inds.train]
+train.data <- data[inds.train,]
+test.data <- data[inds.test,]
+```
+
+
+```{r}
+#Fitting a model on training data
+logregm <- glm(Regulation ~ SepalLengthCm + SepalWidthCm + PetalLengthCm + PetalWidthCm, data = train.data, family = "binomial")
+summary(logregm)
+```
+
+```{r}
+#Making predictions on test data
+probs <- predict(logregm, newdata = test.data, type = "response")
+preds <- rep(0, dim(test.data)[1])
+preds[probs > 0.5] <- 1
+```
+
+
+```{r}
+#Computing sensitivity
+sensitivity(cm)
+```
+```{r}
+#Computing sensitivity
+specificity(cm)
+```
+```{r}
+#Computing accuracy
+accuracy <- mean(test.data$Regulation == preds)
+accuracy
+```
+```{r}
+#Computing precision
+tp <- cm[2,2]
+tn <- cm[1,1]
+fp <- cm[1,2]
+fn <- cm[2,1]
+precision <- (tp) / (tp + fp)
+precision
+```
+```{r}
+#Computing the AUC
+library(pROC)
+AUC <- auc(test.data$Regulation, preds,levels = c(0, 1), direction = "<")
+AUC
+```
+## 10-fold CV on Logistic Regression Model
+
+
+```{r}
+#Performing a 10-fold CV
+#Define the training control
+
+train_control <- trainControl(method = "cv", number = 10)
+
+#Train the model on training set
+model <- train(Regulation ~ .,
+               data = train.data,
+               trControl = train_control,
+               method = "glm",
+               family=binomial())
+
+#Print CV scores
+summary(model)
+```
+```{r}
+#Making predictions on test data
+probs <- predict(model, newdata = test.data, family = binomial())
+preds <- rep(0, dim(test.data)[1])
+preds[probs > 0.5] <- 1
+```
+
+
+```{r}
+#Computing sensitivity
+sensitivity(cm)
+```
+```{r}
+#Computing specificity
+specificity(cm)
+```
+```{r}
+#Computing accuracy
+accuracy <- mean(test.data$Regulation == preds)
+accuracy
+```
+```{r}
+#Computing Precision
+tp <- cm[2,2]
+tn <- cm[1,1]
+fp <- cm[1,2]
+fn <- cm[2,1]
+precision <- (tp) / (tp + fp)
+precision
+```
+```{r}
+#computing AUC
+library(pROC)
+AUC <- auc(test.data$Regulation, preds)
+AUC
+```
+## Lasso Model
+
+```{r}
+library(glmnet)
+x <- model.matrix(Regulation~.,train.data)
+y <- train.data$Regulation
+cv.out <- cv.glmnet(x,y,alpha=1,family="binomial",type.measure = "mse")
+plot(cv.out)
+
+```
+```{r}
+lambda_1se <- cv.out$lambda.1se
+coef(cv.out,s=lambda_1se)
+```
+## 10-fold CV using only Variables that Lasso Select
+
+```{r}
+#Creating data2 using only variables that Lasso selected
+data2 <- df%>%select(SepalWidthCm, PetalWidthCm, Regulation)
+#Splitting the data into training and testing data
+n <- dim(data2)[1]
+inds.train <- sample(1:n, 3 * n/4)
+inds.test <- (1:n)[-inds.train]
+train.data <- data2[inds.train,]
+test.data <- data2[inds.test,]
+```
+
+```{r}
+#Performing a 10-fold CV using only the variables that Lasso selected
+# define training control
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train the model on training set
+model <- train(Regulation ~ .,
+               data = train.data,
+               trControl = train_control,
+               method = "glm",
+               family=binomial())
+
+summary(model)
+
+```
+```{r}
+#Making predictions and computing are under the curve
+probs <- predict(model, newdata = test.data, family = binomial())
+preds <- rep(0, dim(test.data)[1])
+preds[probs > 0.5] <- 1
+AUC <- auc(test.data$Regulation, preds)
+AUC
+```
+
+We can see that the model which choose the variables only Lasso selected, has an AUC value of 1, as compared to other models from which none of them have AUC values of 1. So this model fits better to the data as compared to all of the models and performed well to the given data from all other models.
+
+
